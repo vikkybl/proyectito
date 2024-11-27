@@ -99,16 +99,80 @@ def mostrar_contenido(nombre_bd, nombre_tabla):
     ventana_contenido.configure(background=BACKGROUND_COLOR)
 
     # Crear un árbol para mostrar los datos
-    tree = ttk.Treeview(ventana_contenido)
+    tree = ttk.Treeview(ventana_contenido, selectmode='browse')
     tree.pack(fill=tk.BOTH, expand=True)
 
     columnas = [i[0] for i in cursor.description]
     tree["columns"] = columnas
     for col in columnas:
-        tree.heading(col, text=col)
+        tree.heading(col, text=col, anchor="center")
+        tree.column(col, anchor="center", width=150)
 
     for fila in filas:
         tree.insert("", "end", values=fila)
+
+      # Función para eliminar un registro
+    def eliminar_registro():
+        seleccion = tree.selection()
+        if not seleccion:
+            messagebox.showerror("Error", "Debe seleccionar un registro para eliminar.")
+            return
+        
+        valores = tree.item(seleccion[0], "values")
+        condicion = " AND ".join(f"{col}='{val}'" for col, val in zip(columnas, valores))
+
+        confirmacion = messagebox.askyesno("Confirmar", f"¿Está seguro de que desea eliminar este registro?\n{valores}")
+        if confirmacion:
+            try:
+                cursor.execute(f"DELETE FROM {nombre_tabla} WHERE {condicion}")
+                conexion.commit()
+                tree.delete(seleccion[0])
+                messagebox.showinfo("Éxito", "Registro eliminado correctamente.")
+            except mysql.connector.Error as err:
+                messagebox.showerror("Error", f"Error al eliminar el registro: {err}")
+
+    # Función para editar un registro
+    def editar_registro():
+        seleccion = tree.selection()
+        if not seleccion:
+            messagebox.showerror("Error", "Debe seleccionar un registro para editar.")
+            return
+        
+        valores = tree.item(seleccion[0], "values")
+        
+        # Crear una ventana para editar
+        ventana_editar = tk.Toplevel(ventana_contenido)
+        ventana_editar.title("Editar registro")
+        ventana_editar.configure(background=BACKGROUND_COLOR)
+
+        entradas = []
+        for i, col in enumerate(columnas):
+            tk.Label(ventana_editar, text=col, background=BACKGROUND_COLOR, font=FONT).grid(row=i, column=0, padx=10, pady=5)
+            entrada = tk.Entry(ventana_editar)
+            entrada.grid(row=i, column=1, padx=10, pady=5)
+            entrada.insert(0, valores[i])
+            entradas.append(entrada)
+
+        def guardar_cambios():
+            nuevos_valores = [entrada.get() for entrada in entradas]
+            asignaciones = ", ".join(f"{col}='{nuevo}'" for col, nuevo in zip(columnas, nuevos_valores))
+            condicion = " AND ".join(f"{col}='{val}'" for col, val in zip(columnas, valores))
+
+            try:
+                cursor.execute(f"UPDATE {nombre_tabla} SET {asignaciones} WHERE {condicion}")
+                conexion.commit()
+                tree.item(seleccion[0], values=nuevos_valores)
+                messagebox.showinfo("Éxito", "Registro editado correctamente.")
+                ventana_editar.destroy()
+            except mysql.connector.Error as err:
+                messagebox.showerror("Error", f"Error al editar el registro: {err}")
+
+        tk.Button(ventana_editar, text="Guardar cambios", command=guardar_cambios, bg=BUTTON_COLOR, fg="white", font=FONT).grid(row=len(columnas), column=0, columnspan=2, pady=10)
+
+    # Botones para eliminar y editar registros
+    tk.Button(ventana_contenido, text="Eliminar registro", command=eliminar_registro, bg="red", fg="white", font=FONT).pack(pady=10, side=tk.LEFT)
+    tk.Button(ventana_contenido, text="Editar registro", command=editar_registro, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=10, side=tk.RIGHT)
+
 
     tk.Button(ventana_contenido, text="Cerrar", command=ventana_contenido.destroy, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=10)
 
