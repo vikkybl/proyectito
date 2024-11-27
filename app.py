@@ -81,7 +81,7 @@ def limpiar_panel_contenido():
     for widget in panel_contenido.winfo_children():
         widget.destroy()
 
-# Función para mostrar el contenido de una tabla
+# Función para mostrar el contenido de una tabla con opciones de agregar, editar y eliminar
 def mostrar_contenido(nombre_bd, nombre_tabla):
     conexion = mysql.connector.connect(
         host="localhost",
@@ -94,87 +94,135 @@ def mostrar_contenido(nombre_bd, nombre_tabla):
     cursor.execute(f"SELECT * FROM {nombre_tabla}")
     filas = cursor.fetchall()
 
+    columnas = [i[0] for i in cursor.description]
+
     ventana_contenido = tk.Toplevel(ventana)
     ventana_contenido.title(f"Contenido de la tabla '{nombre_tabla}'")
     ventana_contenido.configure(background=BACKGROUND_COLOR)
 
     # Crear un árbol para mostrar los datos
-    tree = ttk.Treeview(ventana_contenido, selectmode='browse')
+    tree = ttk.Treeview(ventana_contenido, columns=columnas, show="headings")
     tree.pack(fill=tk.BOTH, expand=True)
 
-    columnas = [i[0] for i in cursor.description]
-    tree["columns"] = columnas
     for col in columnas:
-        tree.heading(col, text=col, anchor="center")
-        tree.column(col, anchor="center", width=150)
+        tree.heading(col, text=col)
+        tree.column(col, width=100)
 
     for fila in filas:
         tree.insert("", "end", values=fila)
 
-      # Función para eliminar un registro
-    def eliminar_registro():
-        seleccion = tree.selection()
-        if not seleccion:
-            messagebox.showerror("Error", "Debe seleccionar un registro para eliminar.")
+   # Función para agregar una fila
+    def agregar_fila():
+        valores = [entradas[col].get() for col in columnas]
+        try:
+            cursor.execute(
+                f"INSERT INTO {nombre_tabla} ({', '.join(columnas)}) VALUES ({', '.join(['%s'] * len(valores))})",
+                valores,
+            )
+            conexion.commit()
+            messagebox.showinfo("Éxito", "Fila agregada correctamente.")
+            actualizar_contenido()
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"No se pudo agregar la fila: {err}")
+
+
+        # Función para actualizar el contenido del árbol
+    def actualizar_contenido():
+        tree.delete(*tree.get_children())
+        cursor.execute(f"SELECT * FROM {nombre_tabla}")
+        for fila in cursor.fetchall():
+            tree.insert("", "end", values=fila)
+
+      # Función para eliminar una fila seleccionada
+    def eliminar_fila():
+        item_seleccionado = tree.selection()
+        if not item_seleccionado:
+            messagebox.showwarning("Atención", "Seleccione una fila para eliminar.")
             return
-        
-        valores = tree.item(seleccion[0], "values")
-        condicion = " AND ".join(f"{col}='{val}'" for col, val in zip(columnas, valores))
+        valores = tree.item(item_seleccionado)["values"]
+        condicion = " AND ".join(
+            f"{col} = '{val}'" for col, val in zip(columnas, valores)
+        )
+        try:
+            cursor.execute(f"DELETE FROM {nombre_tabla} WHERE {condicion}")
+            conexion.commit()
+            tree.delete(item_seleccionado)
+            messagebox.showinfo("Éxito", "Fila eliminada correctamente.")
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"No se pudo eliminar la fila: {err}")
 
-        confirmacion = messagebox.askyesno("Confirmar", f"¿Está seguro de que desea eliminar este registro?\n{valores}")
-        if confirmacion:
-            try:
-                cursor.execute(f"DELETE FROM {nombre_tabla} WHERE {condicion}")
-                conexion.commit()
-                tree.delete(seleccion[0])
-                messagebox.showinfo("Éxito", "Registro eliminado correctamente.")
-            except mysql.connector.Error as err:
-                messagebox.showerror("Error", f"Error al eliminar el registro: {err}")
-
-    # Función para editar un registro
-    def editar_registro():
-        seleccion = tree.selection()
-        if not seleccion:
-            messagebox.showerror("Error", "Debe seleccionar un registro para editar.")
+       # Función para editar una fila seleccionada
+    def editar_fila():
+        item_seleccionado = tree.selection()
+        if not item_seleccionado:
+            messagebox.showwarning("Atención", "Seleccione una fila para editar.")
             return
-        
-        valores = tree.item(seleccion[0], "values")
-        
-        # Crear una ventana para editar
-        ventana_editar = tk.Toplevel(ventana_contenido)
-        ventana_editar.title("Editar registro")
-        ventana_editar.configure(background=BACKGROUND_COLOR)
+        valores_antiguos = tree.item(item_seleccionado)["values"]
+        valores_nuevos = [entradas[col].get() for col in columnas]
 
-        entradas = []
-        for i, col in enumerate(columnas):
-            tk.Label(ventana_editar, text=col, background=BACKGROUND_COLOR, font=FONT).grid(row=i, column=0, padx=10, pady=5)
-            entrada = tk.Entry(ventana_editar)
-            entrada.grid(row=i, column=1, padx=10, pady=5)
-            entrada.insert(0, valores[i])
-            entradas.append(entrada)
+        condicion = " AND ".join(
+            f"{col} = '{val}'" for col, val in zip(columnas, valores_antiguos)
+        )
+        actualizaciones = ", ".join(
+            f"{col} = '{val}'" for col, val in zip(columnas, valores_nuevos)
+        )
 
-        def guardar_cambios():
-            nuevos_valores = [entrada.get() for entrada in entradas]
-            asignaciones = ", ".join(f"{col}='{nuevo}'" for col, nuevo in zip(columnas, nuevos_valores))
-            condicion = " AND ".join(f"{col}='{val}'" for col, val in zip(columnas, valores))
+        try:
+            cursor.execute(f"UPDATE {nombre_tabla} SET {actualizaciones} WHERE {condicion}")
+            conexion.commit()
+            actualizar_contenido()
+            messagebox.showinfo("Éxito", "Fila actualizada correctamente.")
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"No se pudo editar la fila: {err}")
 
-            try:
-                cursor.execute(f"UPDATE {nombre_tabla} SET {asignaciones} WHERE {condicion}")
-                conexion.commit()
-                tree.item(seleccion[0], values=nuevos_valores)
-                messagebox.showinfo("Éxito", "Registro editado correctamente.")
-                ventana_editar.destroy()
-            except mysql.connector.Error as err:
-                messagebox.showerror("Error", f"Error al editar el registro: {err}")
+    # Panel de formularios para agregar o editar filas
+    frame_formulario = tk.Frame(ventana_contenido, bg=BACKGROUND_COLOR)
+    frame_formulario.pack(fill=tk.X, pady=10)
 
-        tk.Button(ventana_editar, text="Guardar cambios", command=guardar_cambios, bg=BUTTON_COLOR, fg="white", font=FONT).grid(row=len(columnas), column=0, columnspan=2, pady=10)
+    entradas = {}
+    for col in columnas:
+        tk.Label(frame_formulario, text=col, background=BACKGROUND_COLOR, font=FONT).pack(side=tk.LEFT, padx=5)
+        entrada = tk.Entry(frame_formulario)
+        entrada.pack(side=tk.LEFT, padx=5)
+        entradas[col] = entrada
 
-    # Botones para eliminar y editar registros
-    tk.Button(ventana_contenido, text="Eliminar registro", command=eliminar_registro, bg="red", fg="white", font=FONT).pack(pady=10, side=tk.LEFT)
-    tk.Button(ventana_contenido, text="Editar registro", command=editar_registro, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=10, side=tk.RIGHT)
+    tk.Button(
+        ventana_contenido,
+        text="Agregar Fila",
+        command=agregar_fila,
+        bg=BUTTON_COLOR,
+        fg="white",
+        font=FONT,
+    ).pack(side=tk.LEFT, padx=10)
 
+    tk.Button(
+        ventana_contenido,
+        text="Editar Fila",
+        command=editar_fila,
+        bg=BUTTON_COLOR,
+        fg="white",
+        font=FONT,
+    ).pack(side=tk.LEFT, padx=10)
 
-    tk.Button(ventana_contenido, text="Cerrar", command=ventana_contenido.destroy, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=10)
+    tk.Button(
+        ventana_contenido,
+        text="Eliminar Fila",
+        command=eliminar_fila,
+        bg="red",
+        fg="white",
+        font=FONT,
+    ).pack(side=tk.LEFT, padx=10)
+
+    tk.Button(
+        ventana_contenido,
+        text="Cerrar",
+        command=ventana_contenido.destroy,
+        bg=BUTTON_COLOR,
+        fg="white",
+        font=FONT,
+    ).pack(side=tk.BOTTOM, pady=10)
+
+    actualizar_contenido()
 
     conexion.close()
 
@@ -312,6 +360,12 @@ def crear_tabla(nombre_bd):
 
     tk.Button(ventana_crear_tabla, text="Agregar campo", command=agregar_campo, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=5)
     tk.Button(ventana_crear_tabla, text="Crear", command=crear, bg=BUTTON_COLOR, fg="white", font=FONT).pack(pady=5)
+
+# Función para actualizar las bases de datos periódicamente
+def actualizar_bases_datos():
+    mostrar_bases_datos()  # Actualiza la lista de bases de datos
+    ventana.after(5000, actualizar_bases_datos)  # Programa la siguiente actualización en 5 segundos
+
 
 # Crear la ventana principal
 ventana = tk.Tk()
